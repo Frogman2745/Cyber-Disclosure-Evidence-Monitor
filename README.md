@@ -12,6 +12,18 @@ python verify_evidence.py
 
 The verification script produces `output/evidence_register.csv`, `output/verification_report.json`, and `output/comparison.html`. The scripts use only the Python standard library. Replace the example contact address with your own before fetching. Source HTML files are downloaded from the SEC and are kept with SHA-256 hashes in the report; they are not intended for redistribution through a public repository. `sources/` is ignored by Git.
 
+## Human review
+
+Open a source filing and read the entire Item 1C passage around an anchor before recording a decision. For example:
+
+```powershell
+python review_log.py status
+python review_log.py record MSFT-2025-01 needs_more_evidence --reviewer "Your Name" --note "Need to inspect the full governance context before approval."
+python verify_evidence.py
+```
+
+Decisions are appended to `output/reviews.jsonl` with a hash chain and the source, section, and evidence hashes seen by the reviewer. The log detects edits to existing events but is not an externally anchored tamper-proof ledger. If a filing snapshot or observation changes, earlier decisions display as stale and require re-review. The local log is not published by default; retain or archive it deliberately if you need durable review history. No decisions are pre-filled by this project.
+
 ## Scope and interpretation
 
 - Sample: one 2025 annual Form 10-K per company. Microsoft has a June 30 fiscal year end; Alphabet and Amazon have December 31 fiscal year ends. This is a comparison of disclosed statements, not identical time windows.
@@ -26,7 +38,7 @@ Primary filings: SEC EDGAR. Framework: NIST CSF 2.0. See `sources.json` and `evi
 
 ## Next build phases
 
-1. Expand the register to all Item 1C themes with reviewer decisions and counterevidence notes.
+1. Expand the register to all Item 1C themes with counterevidence notes and adjudication.
 2. Ingest quarterly and annual filings through the SEC submissions API, preserving revisions and accessions.
 3. Add a local review UI with source snippets, uncertainty flags, and export history.
 4. Add an optional AI extraction candidate lane evaluated against hand-reviewed examples. AI output never becomes a finding without review.

@@ -7,6 +7,7 @@ from html import escape
 import json
 from pathlib import Path
 import re
+from review_log import digest
 
 ROOT = Path(__file__).resolve().parent
 
@@ -38,6 +39,21 @@ def normalize(value):
     return re.sub(r"\s+", " ", value).strip().casefold()
 
 
+def item_1c_section(text):
+    """Choose a substantive Item 1C followed by Item 2, ignoring the TOC pair."""
+    starts = list(re.finditer(r"item\s*1c\.?\s*cybersecurity", text))
+    ends = list(re.finditer(r"item\s*2\.?\s*properties", text))
+    candidates = []
+    for start in starts:
+        end = next((item for item in ends if item.start() > start.end()), None)
+        if end and 500 < end.start() - start.end() < 50_000:
+            candidates.append((start.end(), end.start()))
+    if len(candidates) != 1:
+        raise ValueError(f"Expected one substantive Item 1C section, found {len(candidates)}")
+    start, end = candidates[0]
+    return text[start:end]
+
+
 def main():
     sources = json.loads((ROOT / "sources.json").read_text(encoding="utf-8"))
     evidence = json.loads((ROOT / "evidence.json").read_text(encoding="utf-8"))
@@ -51,9 +67,12 @@ def main():
         raw = (ROOT / "sources" / source["file"]).read_bytes()
         parser = VisibleText()
         parser.feed(raw.decode("utf-8", errors="replace"))
+        text = normalize("".join(parser.parts))
+        section = item_1c_section(text)
         files[company] = {
             "sha256": hashlib.sha256(raw).hexdigest(),
-            "text": normalize("".join(parser.parts)),
+            "section_sha256": hashlib.sha256(section.encode("utf-8")).hexdigest(),
+            "section": section,
             "size_bytes": len(raw),
         }
     rows = []
@@ -64,14 +83,16 @@ def main():
         seen.add(item["id"])
         company = item["company"]
         source = source_map[company]
-        match_count = files[company]["text"].count(normalize(item["anchor"]))
+        match_count = files[company]["section"].count(normalize(item["anchor"]))
         rows.append({
             **item,
+            "evidence_sha256": digest({key: item[key] for key in ("id", "company", "theme", "csf_function", "observation", "anchor")}),
             "form": source["form"],
             "fiscal_year_end": source["fiscal_year_end"],
             "accession": source["accession"],
             "filing_url": source["url"],
             "source_sha256": files[company]["sha256"],
+            "section_sha256": files[company]["section_sha256"],
             "anchor_match_count": match_count,
             "verification": "matched_once" if match_count == 1 else "needs_review",
         })
@@ -80,12 +101,16 @@ def main():
         writer.writeheader()
         writer.writerows(rows)
     report = {
-        "source_files": [{**source, "sha256": files[source["company"]]["sha256"], "size_bytes": files[source["company"]]["size_bytes"]} for source in sources],
+        "source_files": [{**source, "sha256": files[source["company"]]["sha256"], "section_sha256": files[source["company"]]["section_sha256"], "size_bytes": files[source["company"]]["size_bytes"]} for source in sources],
         "candidate_count": len(rows),
         "matched_once": sum(row["verification"] == "matched_once" for row in rows),
         "needs_review": [row["id"] for row in rows if row["verification"] != "matched_once"],
         "interpretation": "Anchor matching establishes traceability, not control effectiveness or verified implementation.",
     }
+    from review_log import load_events, review_status
+    statuses = review_status({row["id"]: row for row in rows}, load_events())
+    report["review_status"] = statuses
+    report["approved_count"] = sum(value["state"] == "approve" for value in statuses.values())
     (output / "verification_report.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     cards = []
     for company in source_map:
@@ -96,7 +121,7 @@ def main():
             + "<h3>" + escape(row["theme"]) + "</h3>"
             + "<p>" + escape(row["observation"]) + "</p>"
             + "<small>Source anchor: “" + escape(row["anchor"]) + "” · "
-            + escape(row["verification"]) + " · Review: " + escape(row["review_state"]) + "</small></li>"
+            + escape(row["verification"]) + " · Review: " + escape(statuses[row["id"]]["state"]) + "</small></li>"
             for row in company_rows
         )
         cards.append(
