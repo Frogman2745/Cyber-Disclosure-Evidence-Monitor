@@ -10,6 +10,8 @@ python fetch_sources.py
 python verify_evidence.py
 ```
 
+For a safe end-to-end demonstration, run `python demo_workflow.py`. It makes a temporary copy, records an explicitly labeled example decision, changes the example wording, and tampers with the example log to show both safeguards. The real review log is untouched. The concise result is saved to `output/demo_transcript.txt`.
+
 The verification script produces `output/evidence_register.csv`, `output/verification_report.json`, and `output/comparison.html`. The scripts use only the Python standard library. Replace the example contact address with your own before fetching. Source HTML files are downloaded from the SEC and are kept with SHA-256 hashes in the report; they are not intended for redistribution through a public repository. `sources/` is ignored by Git.
 
 ## Human review
